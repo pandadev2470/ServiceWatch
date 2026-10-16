@@ -148,7 +148,7 @@ Brand colors are defined near the top of `templates/index.html` in the `:root` C
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `--brand` | Concord red used for buttons, accents, and tile stripes | `#c8102e` |
+| `--brand` | red used for buttons, accents, and tile stripes | `#c8102e` |
 | `--bad` | Down state; intentionally darker than the brand color | `#8a0e1f` |
 | `--ok` | Running state | `#1c7a4b` |
 | `--warn` | Transitional states | `#8a5a00` |
@@ -209,7 +209,7 @@ Use a secure secret-management approach appropriate to your environment, and avo
 | `notify.py` | SMTP email notifications. |
 | `config.json` | Service watch list and application settings. |
 | `templates/index.html` | Dashboard template. |
-| `static/logo.png` | Concord IT logo displayed in the dashboard. |
+| `static/logo.png` | logo displayed in the dashboard. |
 | `servicewatch.log` | Rotating log file created on first run. |
 | `servicewatch-history.jsonl` | Append-only history file created on first run. |
 
@@ -228,4 +228,4 @@ Use a secure secret-management approach appropriate to your environment, and avo
 
 ---
 
-*Service Watch — Concord, NC Information Technology*
+*Service Watch — 2026
