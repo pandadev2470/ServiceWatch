@@ -1,0 +1,584 @@
+<!--
+FILE: templates/index.html
+ServiceWatch_V1
+Contact: oguejioforc@concordnc.gov
+
+Single-file dashboard. No CDN, no build step. Colors match Concord IT
+branding (red #C8102E accent, charcoal #1A1A1A ink). The logo is served
+from /static/logo.png.
+
+Troubleshooting checklist:
+  * Logo missing? Confirm the file is at static/logo.png and the app was
+    restarted after adding it. Flask caches the static folder listing.
+  * Blank page? Open devtools console; a JS error will be logged there.
+  * "Can't reach the Service Watch server" -> check that app.py is running.
+  * Charts frozen? /api/history refreshes every ~15s; click "Check now".
+  * 400 "Missing X-ServiceWatch header" -> a browser extension or proxy is
+    stripping custom headers on POST. Disable it for this origin.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service Watch — Concord IT</title>
+<style>
+  /* ------------------------------------------------------------------ */
+  /* Design tokens. Concord red accent; maroon for "down" so brand and  */
+  /* status stay visually distinct. Dark mode is a variable swap.       */
+  /* ------------------------------------------------------------------ */
+  :root {
+    --bg:         #f6f7f8;
+    --surface:    #ffffff;
+    --surface-2:  #f0f1f3;
+    --ink:        #1a1a1a;
+    --muted:      #5f6b73;
+    --line:       #e4e6e9;
+
+    --brand:      #c8102e;   /* Concord red */
+    --brand-ink:  #ffffff;
+    --brand-soft: #fbe6ea;
+
+    --accent:     #c8102e;   /* Alias: buttons, focus, links */
+
+    --ok:         #1c7a4b;
+    --ok-soft:    #d6f0e0;
+
+    --warn:       #8a5a00;
+    --warn-soft:  #f6e3b0;
+
+    --bad:        #8a0e1f;   /* Darker than brand so "down" ≠ brand */
+    --bad-soft:   #f4d3d8;
+
+    --shadow: 0 1px 2px rgba(16,22,29,.05), 0 8px 24px rgba(16,22,29,.06);
+    --radius: 12px;
+    --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:         #0e1319;
+      --surface:    #161d25;
+      --surface-2:  #1d2630;
+      --ink:        #e8eef5;
+      --muted:      #93a2b1;
+      --line:       #263241;
+
+      --brand:      #e63950;   /* Slightly brighter red for dark bg */
+      --brand-ink:  #0b1016;
+      --brand-soft: #3a1a20;
+
+      --accent:     #e63950;
+
+      --ok:         #4cc58a;
+      --ok-soft:    #1c3a2c;
+
+      --warn:       #e3b341;
+      --warn-soft:  #3a3018;
+
+      --bad:        #ff6b6b;
+      --bad-soft:   #3a1d1c;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Base                                                                */
+  /* ------------------------------------------------------------------ */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.55 var(--font);
+    -webkit-font-smoothing: antialiased;
+    padding: 32px 20px 80px;
+  }
+  main { max-width: 1080px; margin: 0 auto; }
+
+  /* ------------------------------------------------------------------ */
+  /* Header + logo chip                                                  */
+  /* ------------------------------------------------------------------ */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 20px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 16px; min-width: 0; }
+  /* White chip keeps the red/white logo readable on both themes. */
+  .logo-chip {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 8px 12px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow);
+    flex: none;
+  }
+  .logo-chip img {
+    display: block;
+    height: 44px;
+    width: auto;
+    max-width: 220px;
+  }
+  .titles { min-width: 0; }
+  .app-name {
+    margin: 0; font-size: 12px; color: var(--muted); font-weight: 700;
+    letter-spacing: .08em; text-transform: uppercase;
+  }
+  h1 {
+    margin: 2px 0 0; font-size: clamp(20px, 3vw, 26px);
+    font-weight: 650; letter-spacing: -0.015em;
+  }
+  h1.attention { color: var(--bad); }
+  .updated {
+    color: var(--muted); font-size: 12.5px; margin: 4px 0 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Buttons                                                             */
+  /* ------------------------------------------------------------------ */
+  button {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    padding: 8px 14px; border-radius: 8px;
+    transition: border-color .12s, background .12s, transform .06s;
+  }
+  button:hover { border-color: var(--accent); }
+  button:active { transform: translateY(1px); }
+  button.primary {
+    background: var(--brand); border-color: var(--brand); color: var(--brand-ink);
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .55; cursor: default; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+
+  /* ------------------------------------------------------------------ */
+  /* Banners                                                             */
+  /* ------------------------------------------------------------------ */
+  .demo, .error-bar {
+    padding: 10px 14px; border-radius: 10px; margin-bottom: 16px;
+    font-size: 13.5px; border: 1px solid var(--line); background: var(--surface);
+  }
+  .demo { border-style: dashed; border-color: var(--warn); color: var(--warn); }
+  .error-bar { border-color: var(--bad); color: var(--bad); }
+
+  /* ------------------------------------------------------------------ */
+  /* Summary tiles                                                       */
+  /* ------------------------------------------------------------------ */
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
+    position: relative; overflow: hidden;
+  }
+  /* Thin red accent stripe down the left of each tile. */
+  .tile::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--brand);
+  }
+  .tile .k {
+    color: var(--muted); font-size: 12px; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase;
+  }
+  .tile .v {
+    font-size: 26px; font-weight: 650; margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .tile .v.ok { color: var(--ok); }
+  .tile .v.bad { color: var(--bad); }
+  .tile .v.warn { color: var(--warn); }
+  .tile .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  /* ------------------------------------------------------------------ */
+  /* Service cards                                                       */
+  /* ------------------------------------------------------------------ */
+  .services { display: grid; gap: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .card-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .svc-label { font-weight: 650; font-size: 15.5px; }
+  .svc-name { color: var(--muted); font-size: 12.5px; font-family: var(--mono); margin-top: 2px; }
+  .state {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13px; padding: 4px 10px; border-radius: 999px;
+    background: var(--surface-2); color: var(--muted);
+  }
+  .state.running { background: var(--ok-soft); color: var(--ok); }
+  .state.stopped, .state.error, .state.not_found { background: var(--bad-soft); color: var(--bad); }
+  .state.starting, .state.stopping, .state.paused { background: var(--warn-soft); color: var(--warn); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+  .meta {
+    display: flex; gap: 20px; margin-top: 12px; flex-wrap: wrap;
+    color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums;
+  }
+  .meta b { color: var(--ink); font-weight: 600; }
+
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
+  .note.bad { color: var(--bad); }
+
+  /* ------------------------------------------------------------------ */
+  /* Uptime bars                                                         */
+  /* ------------------------------------------------------------------ */
+  .uptime { margin-top: 14px; }
+  .uptime-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+  .uptime-row .pct {
+    width: 56px; font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .bar {
+    flex: 1; height: 10px; border-radius: 999px; overflow: hidden;
+    background: var(--surface-2); display: flex;
+  }
+  .bar span { height: 100%; }
+  .bar .up { background: var(--ok); }
+  .bar .down { background: var(--bad); }
+  .bar .none { background: var(--line); }
+
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+  /* ------------------------------------------------------------------ */
+  /* Empty state & toast                                                 */
+  /* ------------------------------------------------------------------ */
+  .empty {
+    background: var(--surface); border: 1px dashed var(--line);
+    border-radius: var(--radius); padding: 32px; text-align: center;
+    color: var(--muted);
+  }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--bad); color: #fff; padding: 10px 16px; border-radius: 10px;
+    font-size: 13.5px; box-shadow: var(--shadow); z-index: 50;
+  }
+
+  @media (max-width: 620px) {
+    body { padding: 24px 14px 64px; }
+    .card-head { flex-direction: column; }
+    .logo-chip img { height: 36px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <!-- Header: logo chip, dynamic summary line, and "Check now" button. -->
+  <header>
+    <div class="brand">
+      <div class="logo-chip">
+        <img src="/static/logo.png" alt="Concord North Carolina Information Technology">
+      </div>
+      <div class="titles">
+        <p class="app-name">Service Watch</p>
+        <h1 id="summary" aria-live="polite">Checking services</h1>
+        <p class="updated" id="updated"></p>
+      </div>
+    </div>
+    <button id="check-all" type="button" class="primary">Check now</button>
+  </header>
+
+  <!-- Demo-mode banner target. Filled by render(). -->
+  <div id="banner"></div>
+
+  <!-- Summary tiles (total, running, attention, auto-restarts). -->
+  <div id="tiles" class="tiles"></div>
+
+  <!-- One card per watched service. Filled by render(). -->
+  <div id="services" class="services" aria-label="Watched services"></div>
+</main>
+
+<script>
+/* ===================================================================== */
+/* Constants                                                             */
+/* ===================================================================== */
+
+// Human-readable labels for every state the backend can return.
+const STATE_TEXT = {
+  running: "Running", stopped: "Stopped", starting: "Starting", stopping: "Stopping",
+  paused: "Paused", not_found: "Not installed", error: "Can't read status", unknown: "Checking"
+};
+
+/* ===================================================================== */
+/* Tiny DOM helper                                                       */
+/* ===================================================================== */
+
+// el("div", {class: "x", onclick: fn}, child1, child2) -> HTMLElement
+// Any prop starting with "on" is registered as an event listener; other
+// props become attributes. Falsy children are skipped so callers can pass
+// conditional expressions without extra checks.
+function el(tag, props = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) node.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null && kid !== false) node.append(kid);
+  return node;
+}
+
+/* ===================================================================== */
+/* API helper                                                            */
+/* ===================================================================== */
+
+// Wraps fetch, always sends the X-ServiceWatch header (required by the
+// server for POSTs), and throws on non-2xx responses so callers can try/catch.
+async function api(path, method = "GET") {
+  const res = await fetch(path, { method, headers: { "X-ServiceWatch": "1" } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+}
+
+/* ===================================================================== */
+/* Formatting helpers                                                    */
+/* ===================================================================== */
+
+// "5s", "3m", "2h 14m", "1d 3h" — for "in this state" columns.
+function ago(iso) {
+  if (!iso) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h";
+}
+
+// HH:MM:SS in the browser's locale.
+function clock(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+/* ===================================================================== */
+/* Toast (transient error display)                                       */
+/* ===================================================================== */
+
+// Shows a red toast at the bottom of the screen for 5 seconds. Replaces
+// any existing toast so errors don't stack up.
+function toast(msg) {
+  const existing = document.querySelector(".toast");
+  if (existing) existing.remove();
+  if (!msg) return;
+  const t = el("div", { class: "toast", role: "alert" }, msg);
+  document.body.append(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+/* ===================================================================== */
+/* Actions                                                               */
+/* ===================================================================== */
+
+// POST a path and re-render on success; toast on failure.
+async function act(path) {
+  try {
+    render(await api(path, "POST"));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+/* ===================================================================== */
+/* Uptime chart rendering                                                */
+/* ===================================================================== */
+
+// Build a bar of equal-width segments. Each segment is green (up), red
+// (down), or grey (no data). `samples` is [{t, up}] where up is 0..1 or null.
+function uptimeBar(samples) {
+  const bar = el("div", { class: "bar" });
+  for (const s of samples) {
+    const cls = s.up == null ? "none" : (s.up >= 0.5 ? "up" : "down");
+    bar.append(el("span", { class: cls, style: "width:" + (100 / samples.length) + "%" }));
+  }
+  return bar;
+}
+
+// Compose the uptime block for one service card: a row per window with a
+// percentage label and the bar itself.
+function renderUptime(series) {
+  const wrap = el("div", { class: "uptime" });
+  for (const { label, samples } of series) {
+    const known = samples.filter(s => s.up != null);
+    const pct = known.length
+      ? Math.round(100 * known.reduce((a, s) => a + s.up, 0) / known.length)
+      : null;
+    wrap.append(el("div", { class: "uptime-row" },
+      el("div", { class: "pct" }, pct == null ? "—" : pct + "%"),
+      uptimeBar(samples),
+      el("div", { class: "pct", style: "text-align:left;width:auto" }, label)
+    ));
+  }
+  return wrap;
+}
+
+/* ===================================================================== */
+/* Main render                                                           */
+/* ===================================================================== */
+
+// Rebuild the whole page from a /api/status payload. `history` is optional:
+// when present it's {name: [{t, up}, ...]} for the last 24h (48 buckets).
+function render(data, history = {}) {
+  // --- Demo banner ---------------------------------------------------
+  const banner = document.getElementById("banner");
+  banner.replaceChildren();
+  if (data.mock) {
+    banner.append(el("div", { class: "demo" },
+      "Demo mode: these are simulated services. Run on Windows to monitor real ones."));
+  }
+
+  // --- Summary line --------------------------------------------------
+  const services = data.services;
+  const down = services.filter(s => s.state !== "running" && s.state !== "unknown");
+  const summary = document.getElementById("summary");
+  summary.classList.toggle("attention", down.length > 0);
+  if (!services.length) {
+    summary.textContent = "No services on the watch list";
+  } else if (services.every(s => s.state === "unknown")) {
+    summary.textContent = "Checking services";
+  } else if (!down.length) {
+    summary.textContent = services.length === 1
+      ? "The service is running"
+      : "All " + services.length + " services are running";
+  } else if (down.length === 1) {
+    summary.textContent = down[0].label + ": " + STATE_TEXT[down[0].state].toLowerCase();
+  } else {
+    summary.textContent = down.length + " of " + services.length + " services need attention";
+  }
+
+  // --- Last-checked timestamp ---------------------------------------
+  const last = services.map(s => s.last_check).filter(Boolean).sort().pop();
+  document.getElementById("updated").textContent =
+    last ? "Last checked " + clock(last) + ", then every " + data.interval + " seconds" : "";
+
+  // --- Summary tiles -------------------------------------------------
+  const tiles = document.getElementById("tiles");
+  tiles.replaceChildren();
+  const running = services.filter(s => s.state === "running").length;
+  const attention = down.length;
+  const restarts = services.reduce((a, s) => a + (s.total_restarts || 0), 0);
+
+  tiles.append(
+    el("div", { class: "tile" },
+      el("div", { class: "k" }, "Watched"),
+      el("div", { class: "v" }, String(services.length))),
+    el("div", { class: "tile" },
+      el("div", { class: "k" }, "Running"),
+      el("div", { class: "v ok" }, String(running))),
+    el("div", { class: "tile" },
+      el("div", { class: "k" }, "Need attention"),
+      el("div", { class: "v " + (attention ? "bad" : "ok") }, String(attention))),
+    el("div", { class: "tile" },
+      el("div", { class: "k" }, "Auto-restarts"),
+      el("div", { class: "v " + (restarts ? "warn" : "") }, String(restarts)))
+  );
+
+  // --- Service cards -------------------------------------------------
+  const box = document.getElementById("services");
+  box.replaceChildren();
+  if (!services.length) {
+    box.append(el("div", { class: "empty" },
+      "Add service names to config.json and restart the app."));
+    return;
+  }
+
+  for (const s of services) {
+    // Note shown under the state pill: gave_up > error > stopped hint.
+    let note = null, bad = false;
+    if (s.gave_up) {
+      note = "Gave up after " + data.max_attempts + " restart attempts";
+      bad = true;
+    } else if (s.error) {
+      note = s.error;
+      bad = true;
+    } else if (s.state === "stopped" && s.auto_restart) {
+      note = "Restarting automatically (" + s.attempts + " of " + data.max_attempts + " tried)";
+    } else if (s.state === "stopped") {
+      note = "Automatic restart is off";
+    }
+
+    // Action buttons: manual start + demo-only simulate-stop.
+    const actions = el("div", { class: "actions" });
+    if (s.state !== "running" && s.state !== "not_found" && s.state !== "unknown") {
+      actions.append(el("button", {
+        class: "primary", type: "button",
+        onclick: () => act("/api/services/" + encodeURIComponent(s.name) + "/start")
+      }, "Start service"));
+    }
+    if (data.mock && s.state === "running") {
+      actions.append(el("button", {
+        type: "button",
+        onclick: () => act("/api/services/" + encodeURIComponent(s.name) + "/simulate-stop")
+      }, "Simulate stop"));
+    }
+
+    // Uptime series for this service, if we have history data.
+    const series = history[s.name]
+      ? [{ label: "24h", samples: history[s.name] }]
+      : null;
+
+    box.append(el("div", { class: "card" },
+      el("div", { class: "card-head" },
+        el("div", {},
+          el("div", { class: "svc-label" }, s.label),
+          el("div", { class: "svc-name" }, s.name)),
+        el("div", { class: "state " + s.state },
+          el("span", { class: "dot" }),
+          STATE_TEXT[s.state] || s.state)),
+      note ? el("div", { class: "note" + (bad ? " bad" : "") }, note) : null,
+      el("div", { class: "meta" },
+        el("span", {}, "In this state: ", el("b", {}, ago(s.since))),
+        el("span", {}, "Restarts: ", el("b", {}, String(s.total_restarts || 0))),
+        el("span", {}, "Last check: ", el("b", {}, ago(s.last_check)))),
+      series ? renderUptime(series) : null,
+      actions
+    ));
+  }
+}
+
+/* ===================================================================== */
+/* Refresh loop                                                          */
+/* ===================================================================== */
+
+// Fetch status every 3s; fetch history every ~15s to reduce load.
+let lastHistoryFetch = 0;
+let cachedHistory = {};
+
+async function refresh() {
+  try {
+    const data = await api("/api/status");
+
+    // Refresh history every ~15s (5 status ticks).
+    const now = Date.now();
+    if (now - lastHistoryFetch > 15000) {
+      lastHistoryFetch = now;
+      try {
+        const h = await api("/api/history?hours=24&buckets=48");
+        cachedHistory = h.series || {};
+      } catch (_) {
+        // Non-fatal: keep showing the previous history snapshot.
+      }
+    }
+
+    render(data, cachedHistory);
+  } catch (err) {
+    toast("Can't reach the Service Watch server. " + err.message);
+  }
+}
+
+// Wire the "Check now" button and kick off periodic refresh.
+document.getElementById("check-all").addEventListener("click", () => act("/api/check"));
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
+
+<!--
+End of File: templates/index.html
+-->

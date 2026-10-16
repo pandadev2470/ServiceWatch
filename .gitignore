@@ -1,0 +1,36 @@
+# FILE: .gitignore
+# ServiceWatch_V1
+# Contact: oguejioforc@concordnc.gov
+#
+# Runtime artifacts and editor/OS noise that should never be committed.
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# --- Service Watch runtime files ---
+# Rotating log, the JSONL history, and any local override config.
+servicewatch.log
+servicewatch.log.*
+servicewatch-history.jsonl
+servicewatch-history.jsonl.tmp
+config.local.json
+
+# --- Legacy SQLite artifacts (safe to leave; kept so old checkouts stay clean) ---
+servicewatch.db
+servicewatch.db-journal
+servicewatch.db-wal
+servicewatch.db-shm
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# End of File: .gitignore

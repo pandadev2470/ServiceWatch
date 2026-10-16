@@ -1,0 +1,36 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "check_interval_seconds": 10,
+  "restart_cooldown_seconds": 30,
+  "max_restart_attempts": 3,
+  "stable_after_seconds": 60,
+  "history_file": "servicewatch-history.jsonl",
+  "history_retention_days": 30,
+  "email": {
+    "enabled": false,
+    "smtp_host": "smtp.example.com",
+    "smtp_port": 587,
+    "use_tls": true,
+    "username": "alerts@example.com",
+    "password_env": "SERVICEWATCH_SMTP_PASSWORD",
+    "from_addr": "alerts@example.com",
+    "to_addrs": ["you@example.com"],
+    "cooldown_seconds": 300,
+    "notify_on": ["down", "recovered", "gave_up"]
+  },
+  "services": [
+    { "name": "Spooler", "label": "Print Spooler", "auto_restart": true },
+    { "name": "W32Time", "label": "Windows Time", "auto_restart": true },
+    { "name": "wuauserv", "label": "Windows Update", "auto_restart": false },
+    { "name": "Dnscache", "label": "DNS Client", "auto_restart": true },
+    { "name": "Dhcp", "label": "DHCP Client", "auto_restart": true },
+    { "name": "LanmanServer", "label": "Server (SMB)", "auto_restart": true },
+    { "name": "LanmanWorkstation", "label": "Workstation (SMB)", "auto_restart": true },
+    { "name": "EventLog", "label": "Windows Event Log", "auto_restart": true },
+    { "name": "Schedule", "label": "Task Scheduler", "auto_restart": true },
+    { "name": "Winmgmt", "label": "WMI", "auto_restart": true },
+    { "name": "TermService", "label": "Remote Desktop Services", "auto_restart": false },
+    { "name": "AudioSrv", "label": "Windows Audio", "auto_restart": false }
+  ]
+}

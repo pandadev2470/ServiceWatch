@@ -1,0 +1,18 @@
+# FILE: requirements.txt
+# ServiceWatch_V1
+# Contact: oguejioforc@concordnc.gov
+#
+# Runtime dependencies.
+#   flask          - web framework (routing, JSON responses, templating)
+#   waitress       - production WSGI server used when running app.py directly
+#   pywin32        - Windows Service Control Manager access (Windows only)
+#   python-dotenv  - auto-loads .env into os.environ at startup
+#
+# No SQLite, no numpy, no chart library. History is plain JSONL + in-memory.
+
+flask>=3.0
+waitress>=3.0
+python-dotenv>=1.0
+pywin32>=306; sys_platform == "win32"
+
+# End of File: requirements.txt

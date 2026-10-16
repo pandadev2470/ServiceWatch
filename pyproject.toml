@@ -1,0 +1,27 @@
+# FILE: pyproject.toml
+# ServiceWatch_V1
+# Contact: oguejioforc@concordnc.gov
+#
+# Project metadata for uv/pip. `package = false` because this is a folder of
+# scripts, not an installable library: `uv sync` should only create .venv and
+# install dependencies.
+
+[project]
+name = "servicewatch"
+version = "0.3.0"
+description = "Windows service watcher with auto-restart, email alerts, and uptime charts (no SQLite)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "waitress>=3.0",
+    "python-dotenv>=1.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[tool.uv]
+# The app is a set of scripts run from this folder, not an installable package.
+# `uv sync` installs the dependencies into .venv and nothing else.
+package = false
+
+# End of File: pyproject.toml
