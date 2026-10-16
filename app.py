@@ -46,6 +46,26 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 CONFIG_PATH = Path(os.environ.get("SERVICEWATCH_CONFIG", BASE_DIR / "config.json"))
+# [Claude review 2026-10-16] Resolve a relative SERVICEWATCH_CONFIG against
+# the project folder, not the current working directory, so .env's
+# "SERVICEWATCH_CONFIG=config.json" works when launched from elsewhere
+# (e.g. Task Scheduler without "Start in").
+if not CONFIG_PATH.is_absolute():
+    CONFIG_PATH = BASE_DIR / CONFIG_PATH
+
+# [Claude review 2026-10-16] Hostnames accepted by default when bound to loopback.
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _hostname(host_header: str) -> str:
+    """[Claude review 2026-10-16] Strip the port from a Host header value.
+
+    Handles bracketed IPv6 ("[::1]:8080" -> "::1").
+    """
+    host_header = (host_header or "").strip().lower()
+    if host_header.startswith("["):
+        return host_header[1:].split("]", 1)[0]
+    return host_header.rsplit(":", 1)[0] if ":" in host_header else host_header
 
 
 def setup_logging() -> None:
@@ -96,6 +116,31 @@ def create_app() -> tuple[Flask, Monitor, dict]:
     # ---- Flask app ---------------------------------------------------- #
     app = Flask(__name__)
 
+    # [Claude review 2026-10-16] Host-header allowlist to block DNS-rebinding.
+    # Without it, a malicious site can rebind its own domain to 127.0.0.1;
+    # the browser then treats requests as same-origin, so the X-ServiceWatch
+    # header check below no longer helps. Set "allowed_hosts" in config.json
+    # when binding to a non-loopback address.
+    bind_host = str(cfg.get("host", "127.0.0.1"))
+    allowed_hosts = {h.lower() for h in cfg.get("allowed_hosts", [])}
+    if not allowed_hosts and bind_host in LOOPBACK_HOSTS:
+        allowed_hosts = set(LOOPBACK_HOSTS)
+    if bind_host not in LOOPBACK_HOSTS:
+        logging.getLogger("servicewatch").warning(
+            "Dashboard bound to %s with NO authentication. Anyone who can reach "
+            "this port can start services. Prefer 127.0.0.1.", bind_host
+        )
+        if not allowed_hosts:
+            logging.getLogger("servicewatch").warning(
+                "No allowed_hosts configured; Host-header check is disabled."
+            )
+
+    @app.before_request
+    def check_host_header():
+        """Reject requests whose Host header isn't on the allowlist."""
+        if allowed_hosts and _hostname(request.host) not in allowed_hosts:
+            return jsonify(error="Host not allowed"), 403
+
     @app.before_request
     def require_header_for_writes():
         """Reject state-changing requests that don't carry our custom header.
@@ -103,8 +148,24 @@ def create_app() -> tuple[Flask, Monitor, dict]:
         A custom header triggers a CORS preflight that a random cross-site
         page can't satisfy, so this blocks CSRF-style form posts.
         """
-        if request.method == "POST" and request.headers.get("X-ServiceWatch") != "1":
+        # [Claude review 2026-10-16] Cover every unsafe method, not just POST,
+        # so any future PUT/PATCH/DELETE route is protected automatically.
+        if (request.method not in ("GET", "HEAD", "OPTIONS")
+                and request.headers.get("X-ServiceWatch") != "1"):
             return jsonify(error="Missing X-ServiceWatch header"), 400
+
+    @app.after_request
+    def security_headers(resp):
+        """[Claude review 2026-10-16] Baseline hardening headers.
+
+        frame-ancestors / X-Frame-Options stop clickjacking of the
+        "Start service" button; nosniff stops MIME sniffing of JSON.
+        """
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        return resp
 
     # ---- Read endpoints ---------------------------------------------- #
     @app.get("/")
@@ -125,8 +186,10 @@ def create_app() -> tuple[Flask, Monitor, dict]:
           hours   - window size (1..720). Default 24.
           buckets - number of buckets (6..240). Default 48.
         """
-        hours = int(request.args.get("hours", 24))
-        buckets = int(request.args.get("buckets", 48))
+        # [Claude review 2026-10-16] type=int falls back to the default on
+        # junk input (e.g. ?hours=abc) instead of raising ValueError -> 500.
+        hours = request.args.get("hours", 24, type=int)
+        buckets = request.args.get("buckets", 48, type=int)
         hours = max(1, min(hours, 24 * 30))
         buckets = max(6, min(buckets, 240))
         data = {
@@ -137,7 +200,12 @@ def create_app() -> tuple[Flask, Monitor, dict]:
 
     @app.get("/api/uptime")
     def uptime():
-        """Uptime percentage per service over a few fixed windows."""
+        """Uptime percentage per service over a few fixed windows.
+
+        [Claude review 2026-10-16] Note: computed from the in-memory cache,
+        which holds at most `max_samples_per_service` samples (~55h at a 10s
+        interval). The 7d/30d figures therefore cover only that span.
+        """
         windows = [1, 24, 24 * 7, 24 * 30]
         out = {}
         for name in monitor.services:
@@ -183,9 +251,12 @@ def create_app() -> tuple[Flask, Monitor, dict]:
 # Module-level app so `waitress-serve app:app` also works.
 app, monitor, config = create_app()
 
+# [Claude review 2026-10-16] Start the poll loop at import time. Previously
+# this only ran under __main__, so `waitress-serve app:app` served a dashboard
+# whose monitor never polled or restarted anything. start() is idempotent.
+monitor.start()
+
 if __name__ == "__main__":
-    # Start the background poll loop before serving requests.
-    monitor.start()
 
     host = config.get("host", "127.0.0.1")
     port = int(config.get("port", 8080))

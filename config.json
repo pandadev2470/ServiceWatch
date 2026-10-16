@@ -20,17 +20,10 @@
     "notify_on": ["down", "recovered", "gave_up"]
   },
   "services": [
-    { "name": "Spooler", "label": "Print Spooler", "auto_restart": true },
-    { "name": "W32Time", "label": "Windows Time", "auto_restart": true },
-    { "name": "wuauserv", "label": "Windows Update", "auto_restart": false },
-    { "name": "Dnscache", "label": "DNS Client", "auto_restart": true },
-    { "name": "Dhcp", "label": "DHCP Client", "auto_restart": true },
-    { "name": "LanmanServer", "label": "Server (SMB)", "auto_restart": true },
-    { "name": "LanmanWorkstation", "label": "Workstation (SMB)", "auto_restart": true },
-    { "name": "EventLog", "label": "Windows Event Log", "auto_restart": true },
-    { "name": "Schedule", "label": "Task Scheduler", "auto_restart": true },
-    { "name": "Winmgmt", "label": "WMI", "auto_restart": true },
-    { "name": "TermService", "label": "Remote Desktop Services", "auto_restart": false },
-    { "name": "AudioSrv", "label": "Windows Audio", "auto_restart": false }
+    { "name": "Themes", "label": "Themes", "auto_restart": true },
+    { "name": "WSearch", "label": "Windows Search", "auto_restart": true },
+    { "name": "SysMain", "label": "SysMain (Superfetch)", "auto_restart": true },
+    { "name": "TrkWks", "label": "Distributed Link Tracking Client", "auto_restart": true },
+    { "name": "stisvc", "label": "Windows Image Acquisition (WIA)", "auto_restart": true }
   ]
 }

@@ -140,28 +140,45 @@ class History:
 
             # Rewrite the file without pruned rows. Do the rewrite via a
             # temp file + replace so a crash mid-write can't corrupt history.
-            if self._fh is not None:
-                try:
-                    self._fh.close()
-                except OSError:
-                    pass
-                self._fh = None
-
+            if self._fh is None:
+                # [Claude review 2026-10-16] No writable handle means the file
+                # was never writable; don't attempt a rewrite.
+                return
             try:
-                tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-                with tmp.open("w", encoding="utf-8") as fh:
-                    for name, dq in self._samples.items():
-                        for ts, up in dq:
-                            fh.write(json.dumps({
-                                "ts": ts.isoformat(timespec="seconds"),
-                                "service": name,
-                                "state": "running" if up else "stopped",
-                                "up": up,
-                            }, separators=(",", ":")) + "\n")
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+
+            # [Claude review 2026-10-16] Stream-filter the FILE rather than
+            # dumping the in-memory deques. The deques are capped at
+            # max_samples (~55h at 10s), so the old rewrite silently threw
+            # away everything older than that on every prune, defeating
+            # history_retention_days. It also lost the real "state" value.
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            try:
+                with self.path.open("r", encoding="utf-8") as src, \
+                        tmp.open("w", encoding="utf-8") as dst:
+                    for line in src:
+                        try:
+                            if datetime.fromisoformat(json.loads(line)["ts"]) < cutoff:
+                                continue
+                        except Exception:  # noqa: BLE001 - drop malformed lines
+                            continue
+                        dst.write(line if line.endswith("\n") else line + "\n")
                 tmp.replace(self.path)
-                self._fh = self.path.open("a", encoding="utf-8")
             except OSError as exc:
                 log.warning("Failed to prune history file: %s", exc)
+            finally:
+                # [Claude review 2026-10-16] Always reopen the append handle.
+                # Previously a failed replace (e.g. file locked by an editor or
+                # AV scanner on Windows) left _fh = None forever, silently
+                # stopping all history persistence until restart.
+                try:
+                    self._fh = self.path.open("a", encoding="utf-8")
+                except OSError as exc:
+                    log.warning("History file not writable (%s); running in-memory only.", exc)
+                    self._fh = None
 
     # ------------------------------------------------------------------ #
     # Reads (used by /api/history and /api/uptime)
@@ -181,18 +198,22 @@ class History:
         # Filter once, then bucket in Python.
         samples = [(t, u) for (t, u) in samples if t >= start]
 
+        # [Claude review 2026-10-16] Single pass: compute each sample's bucket
+        # index directly. The old nested loop was O(buckets * samples) and ran
+        # for every service on every dashboard poll.
+        ups = [0] * buckets
+        totals = [0] * buckets
+        for t, up in samples:
+            i = int((t - start) / step)
+            if 0 <= i < buckets:
+                totals[i] += 1
+                ups[i] += up
+
         out = []
         for i in range(buckets):
-            b_start = start + step * i
-            b_end = b_start + step
-            ups = total = 0
-            for t, up in samples:
-                if b_start <= t < b_end:
-                    total += 1
-                    ups += up
             out.append({
-                "t": b_start.isoformat(timespec="seconds"),
-                "up": (ups / total) if total else None,
+                "t": (start + step * i).isoformat(timespec="seconds"),
+                "up": (ups[i] / totals[i]) if totals[i] else None,
             })
         return out
 

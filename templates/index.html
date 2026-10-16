@@ -378,7 +378,10 @@ function toast(msg) {
 // POST a path and re-render on success; toast on failure.
 async function act(path) {
   try {
-    render(await api(path, "POST"));
+    // [Claude review 2026-10-16] Pass the cached history through. Calling
+    // render() without it made every card's uptime bar vanish after a click
+    // until the next 15s history refresh.
+    render(await api(path, "POST"), cachedHistory);
   } catch (err) {
     toast(err.message);
   }
@@ -548,8 +551,14 @@ function render(data, history = {}) {
 // Fetch status every 3s; fetch history every ~15s to reduce load.
 let lastHistoryFetch = 0;
 let cachedHistory = {};
+// [Claude review 2026-10-16] In-flight guard: if the server is slow, the 3s
+// setInterval would otherwise stack overlapping requests that can finish
+// out of order and render stale data over fresh data.
+let refreshing = false;
 
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   try {
     const data = await api("/api/status");
 
@@ -568,6 +577,8 @@ async function refresh() {
     render(data, cachedHistory);
   } catch (err) {
     toast("Can't reach the Service Watch server. " + err.message);
+  } finally {
+    refreshing = false;  // [Claude review 2026-10-16] release in-flight guard
   }
 }
 

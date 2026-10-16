@@ -26,8 +26,9 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# Optional collaborators; imported lazily so monitor.py stays importable
-# even if someone strips out the history/notify features.
+# Collaborators used for type hints. [Claude review 2026-10-16] The old
+# comment said these were "imported lazily"; they are not — they are normal
+# top-level imports. Comment corrected to match the code.
 from history import History
 from notify import Notifier
 
@@ -135,6 +136,10 @@ class Watched:
     last_attempt: datetime | None = None
     error: str | None = None        # Last backend error, if any
     gave_up: bool = False           # Latched true after max_attempts
+    # [Claude review 2026-10-16] True once a "down" alert has been sent and
+    # not yet answered by a "recovered" alert. Lets recovery be detected even
+    # when the service passes through "starting" on its way back to running.
+    alerted_down: bool = False
 
 
 class Monitor:
@@ -175,6 +180,10 @@ class Monitor:
 
         # Counts ticks so we only prune the DB about once an hour.
         self._prune_counter = 0
+        # [Claude review 2026-10-16] Derive ticks-per-hour from the real
+        # interval. The old hard-coded 360 assumed a 10s interval, so a 60s
+        # interval pruned only every 6 hours.
+        self._prune_every = max(1, 3600 // self.interval)
 
     # -- events ------------------------------------------------------------
     def _event(self, level: str, service: str, message: str) -> None:
@@ -218,7 +227,12 @@ class Monitor:
                     self._event("info", svc.label, f"Monitoring started, status is {state}.")
                 elif state == "running":
                     self._event("info", svc.label, "Service is running.")
-                    if previous in {"stopped", "error"}:
+                    # [Claude review 2026-10-16] Was `previous in {"stopped",
+                    # "error"}`, which missed stopped -> starting -> running
+                    # (the normal path after StartService), so the recovery
+                    # email was never sent. Key off the down alert instead.
+                    if svc.alerted_down:
+                        svc.alerted_down = False
                         self._notify(
                             "recovered", svc,
                             f"{svc.label} recovered",
@@ -226,6 +240,7 @@ class Monitor:
                         )
                 elif state == "error":
                     self._event("error", svc.label, f"Cannot read status: {svc.error}")
+                    svc.alerted_down = True  # [Claude review 2026-10-16]
                     self._notify(
                         "down", svc,
                         f"{svc.label} status unreadable",
@@ -235,6 +250,7 @@ class Monitor:
                     self._event("warning", svc.label,
                                 f"Service is {state.replace('_', ' ')}.")
                     if state == "stopped":
+                        svc.alerted_down = True  # [Claude review 2026-10-16]
                         self._notify(
                             "down", svc,
                             f"{svc.label} stopped",
@@ -338,10 +354,9 @@ class Monitor:
             try:
                 self.check_all()
 
-                # Prune roughly once an hour (360 * 10s = 3600s). Interval
-                # is not guaranteed to be 10s, but close enough for cleanup.
+                # Prune roughly once an hour (see self._prune_every).
                 self._prune_counter += 1
-                if self.history is not None and self._prune_counter >= 360:
+                if self.history is not None and self._prune_counter >= self._prune_every:
                     self.history.prune()
                     self._prune_counter = 0
             except Exception:  # noqa: BLE001

@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import smtplib
+import ssl  # [Claude review 2026-10-16] for a verifying STARTTLS context
 import threading
 import time
 from email.message import EmailMessage
@@ -52,6 +53,12 @@ class Notifier:
         self._last_sent: dict[tuple[str, str], float] = {}
         # Protects _last_sent from concurrent access by the monitor thread.
         self._lock = threading.Lock()
+
+        # [Claude review 2026-10-16] Fail loudly at startup on an incomplete
+        # config instead of only discovering it when the first alert fails.
+        if self.enabled and not (self.cfg.get("smtp_host") and self.cfg.get("to_addrs")):
+            log.warning("Email enabled but smtp_host or to_addrs is missing; "
+                        "notifications will fail.")
 
     # ------------------------------------------------------------------ #
     # Credentials
@@ -117,8 +124,15 @@ class Notifier:
             # 15s timeout prevents a hung server from leaking threads forever.
             with smtplib.SMTP(host, port, timeout=15) as smtp:
                 if use_tls:
-                    smtp.starttls()          # Upgrade the plain connection.
+                    # [Claude review 2026-10-16] Pass a verifying SSL context.
+                    # starttls() with no context does NOT check the server
+                    # certificate or hostname, so a network attacker could
+                    # intercept the connection and capture the SMTP password.
+                    smtp.starttls(context=ssl.create_default_context())
                 if user and password:
+                    if not use_tls:
+                        # [Claude review 2026-10-16] Make plaintext auth visible.
+                        log.warning("Sending SMTP credentials without TLS (use_tls is false).")
                     smtp.login(user, password)
                 smtp.send_message(msg)
 

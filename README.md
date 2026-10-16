@@ -1,7 +1,7 @@
 <!--
 FILE: README.md
 Project: ServiceWatch_V1
-Contact: oguejoforc@concordnc.gov
+Contact: oguejioforc@concordnc.gov
 -->
 
 # Service Watch
@@ -164,6 +164,7 @@ Dark-mode overrides are defined in the `@media (prefers-color-scheme: dark)` blo
 | `restart_cooldown_seconds` | Minimum wait between automatic restart attempts. |
 | `max_restart_attempts` | Maximum restart attempts before the monitor gives up. A manual start resets the count. |
 | `stable_after_seconds` | How long a service must remain running before its restart-attempt count resets. |
+| `allowed_hosts` | Optional list of hostnames accepted in the HTTP `Host` header (DNS-rebinding protection). Defaults to `127.0.0.1`, `localhost`, `::1` when bound to loopback. Set it if you bind to another address, e.g. `["servicewatch.corp.local"]`. |
 | `history_file` | Path to the JSONL history file. |
 | `history_retention_days` | Number of days to retain history; older rows are pruned. |
 | `email.*` | SMTP settings for email notifications. See [Email Notifications](#email-notifications). |
@@ -219,11 +220,13 @@ Use a secure secret-management approach appropriate to your environment, and avo
 | --- | --- |
 | `Access is denied` when starting a service | Run the application from an Administrator terminal. |
 | `The specified service does not exist` | Check `config.json` and use the service's short name. |
-| Demo-mode banner appears on Windows | `SERVICEWATCH_MOCK=1` may be set, or `pywin32` may have failed to import. Check the application log. |
+| Demo-mode banner appears on Windows | `SERVICEWATCH_MOCK=1` is set (check `.env` and the process environment). |
+| `ModuleNotFoundError: pywintypes` / `win32service` at startup | `pywin32` is not installed in the active environment. Run `uv sync` (or `pip install pywin32`). The app does not silently fall back to demo mode. |
 | Uptime charts are empty | Check that `servicewatch-history.jsonl` is writable. The file may also be empty if the app has just started or the history file was deleted. |
 | Email notifications are not sent | Confirm `email.enabled` is `true`, verify `SERVICEWATCH_SMTP_PASSWORD` is available in `.env` or the process environment, and check whether your provider requires an app password or specific SMTP settings. |
 | Logo is missing | Place `logo.png` in `static/` and restart the application. |
 | `400` response on a POST request | The `X-ServiceWatch` header may be missing. The bundled dashboard is expected to send this header. |
+| `403 Host not allowed` | The browser's `Host` header is not in `allowed_hosts`. Browse to `127.0.0.1`/`localhost`, or add the hostname to `allowed_hosts`. |
 | `Address already in use` | Another instance may be running, or the port in `config.json` may need to be changed. |
 
 ---
