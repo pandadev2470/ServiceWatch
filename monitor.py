@@ -1,6 +1,6 @@
 # FILE: monitor.py
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 """Service monitoring logic.
 
 Polls Windows services on an interval, records state changes, and starts any

@@ -1,6 +1,6 @@
 # FILE: pyproject.toml
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 #
 # Project metadata for uv/pip. `package = false` because this is a folder of
 # scripts, not an installable library: `uv sync` should only create .venv and

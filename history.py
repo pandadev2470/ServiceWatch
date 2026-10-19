@@ -1,6 +1,6 @@
 # FILE: history.py
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 """History storage without a database.
 
 Two cooperating stores:

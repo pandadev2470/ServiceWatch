@@ -1,6 +1,6 @@
 # FILE: requirements.txt
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 #
 # Runtime dependencies.
 #   flask          - web framework (routing, JSON responses, templating)

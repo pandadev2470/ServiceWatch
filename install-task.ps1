@@ -1,7 +1,7 @@
 <#
 FILE: install-task.ps1
 ServiceWatch_V1
-Contact: oguejioforc@concordnc.gov
+Contact: admin@thepandadev.com
 
 [Claude review 2026-10-19] Registers Service Watch as a Windows scheduled task
 that starts at boot and is relaunched if it ever exits.

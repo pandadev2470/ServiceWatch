@@ -1,6 +1,6 @@
 # FILE: app.py
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 """Service Watch: a small web dashboard that keeps Windows services running.
 
 Run from an elevated (Administrator) prompt so it is allowed to start services:

@@ -1,6 +1,6 @@
 # FILE: notify.py
 # ServiceWatch_V1
-# Contact: oguejioforc@concordnc.gov
+# Contact: admin@thepandadev.com
 """Email notifications for service state changes.
 
 Uses only the standard library (smtplib + email.message). If email is not
