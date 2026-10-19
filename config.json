@@ -15,7 +15,13 @@
     "username": "alerts@example.com",
     "password_env": "SERVICEWATCH_SMTP_PASSWORD",
     "from_addr": "alerts@example.com",
-    "to_addrs": ["you@example.com"],
+    "to_addrs": [
+      "recipient1@example.com",
+      "recipient2@example.com",
+      "recipient3@example.com",
+      "recipient4@example.com",
+      "recipient5@example.com"
+    ],
     "cooldown_seconds": 300,
     "notify_on": ["down", "recovered", "gave_up"]
   },

@@ -397,3 +397,76 @@ used versions pinned in `uv.lock`. **No live CVE database scan was run**, so
 run `pip-audit` to confirm. Not tested: real SMTP delivery, actual
 restart of a stopped service, behaviour under Task Scheduler, and
 load or long-duration runs.
+
+---
+
+## Review log: 2026-10-19 (deployment prep: key services, 5+ recipients, scheduled task)
+
+Changed blocks are tagged `[Claude review 2026-10-19]`.
+
+### Alerting bugs fixed (`monitor.py`, `notify.py`)
+
+1. **Cooldown could hide an outage.** The sequence down (emailed), then recovered
+   (emailed), then down again within `cooldown_seconds` suppressed the second
+   "down". Recipients' last email said "recovered" while the service stayed down.
+   Alerts deferred by the cooldown are now held in `Watched.pending_alert` and
+   retried every poll. If the service recovers first, the alert is dropped.
+   `Notifier.notify()` now returns `False` only when it defers an alert.
+2. **Down at startup was never emailed.** The first observation
+   (`previous == "unknown"`) was logged only. A service that failed at boot
+   sent no alert, and none at all when `auto_restart` was false.
+3. **`not_found` now emails** (service uninstalled or renamed). This resolves A-7.
+4. **Cooldown keyed by service name**, not label. This resolves A-8.
+5. **Partial recipient refusals were ignored.** `send_message` returns a dict
+   of refused addresses rather than raising. These are now logged.
+6. **`to_addrs` as a string** (`"a@x, b@x"`) was joined character by character.
+   It is now parsed (comma/semicolon) and de-duplicated, and odd-looking
+   addresses are warned about at startup.
+7. **No retry.** One SMTP failure (e.g. network not up at boot) lost the alert.
+   It is now retried after 15 s and 60 s. Auth or recipient errors are not retried.
+8. **Port 465 implicit TLS** is supported (`SMTP_SSL`, auto when port is 465
+   or `use_ssl: true`). The subject includes the host name. Date and Message-ID
+   headers were added. A startup warning is logged if the password env var is missing.
+
+### App / operations (`app.py`, new `install-task.ps1`)
+
+9. **Single-instance lock** (`Global\ServiceWatch_V1` mutex), taken before the
+   monitor starts. Previously a second instance restarted services and sent
+   emails before failing on the port bind. This resolves A-3.
+10. **Config validation** with a readable message, also written to the log
+    (stderr is invisible under Task Scheduler). This resolves A-4.
+11. **`atexit` shutdown** stops the monitor and closes the history file
+    (partly resolves A-2. Task Scheduler "End" still terminates hard).
+12. A `waitress` runtime ImportError no longer falls back to the Flask dev
+    server. A port-in-use error is logged.
+13. **`install-task.ps1`** registers the task with: startup trigger plus a 2 min
+    delay, a 5 min watchdog trigger (`MultipleInstances IgnoreNew`), no
+    execution time limit (the default 3-day limit would kill the monitor),
+    battery-safe settings, and S4U as the current user (no stored password).
+    `-RunAs SYSTEM` warns when the folder is under a user profile.
+
+### Config
+
+- `email.to_addrs` now has 5 placeholder addresses. Email is still disabled
+  (SMTP to be configured later).
+- The services list is unchanged, pending the user's choice of 3 key services.
+
+### Verified
+
+- Monitor and Notifier tested with a fake SMTP server: down-at-startup alert
+  goes to all 5 recipients; a down inside cooldown is deferred then delivered;
+  a blip inside cooldown sends nothing; `not_found` alerts; a partial refusal is
+  logged; string `to_addrs` is parsed.
+- App tested in demo mode on a scratch copy (real log/history untouched):
+  security headers present, bad Host gets 403, POST without header gets 400,
+  junk params get 200, second instance exits with code 1, bad config gives a
+  readable error.
+- `install-task.ps1` parses, but has **not been run** (it changes system state).
+
+### Still open
+
+- S-1 no auth, S-2 runs elevated, S-3 plaintext SMTP secret in `.env`.
+- History is still written on every poll (A-5/A-6). At 3 services that's about
+  780k lines / about 65 MB over 30 days, which is acceptable.
+- Nothing alerts if the *machine itself* goes down. Service Watch can't report
+  its own host being off. Use an external check if that matters.

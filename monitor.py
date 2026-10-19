@@ -38,6 +38,10 @@ IS_WINDOWS = sys.platform == "win32"
 # Win32 error code returned when QueryServiceStatus can't find the name.
 ERROR_SERVICE_DOES_NOT_EXIST = 1060
 
+# [Claude review 2026-10-19] States that trigger a "down" email. not_found
+# (service uninstalled or renamed) used to show only in the UI.
+DOWN_STATES = {"stopped", "error", "not_found"}
+
 
 def _now() -> datetime:
     """UTC now. All internal timestamps are timezone-aware UTC."""
@@ -140,6 +144,10 @@ class Watched:
     # not yet answered by a "recovered" alert. Lets recovery be detected even
     # when the service passes through "starting" on its way back to running.
     alerted_down: bool = False
+    # [Claude review 2026-10-19] Alert (kind, subject, body) that is owed but
+    # was deferred by the notifier cooldown. Retried on every poll so an
+    # outage is never silently swallowed by the cooldown.
+    pending_alert: tuple[str, str, str] | None = None
 
 
 class Monitor:
@@ -197,9 +205,41 @@ class Monitor:
         )
 
     def _notify(self, kind: str, svc: "Watched", subject: str, body: str) -> None:
-        """Small indirection so a missing Notifier is a no-op."""
-        if self.notifier:
-            self.notifier.notify(kind, svc.label, subject, body)
+        """Queue an alert for `svc` and try to send it now.
+
+        [Claude review 2026-10-19] Previously the notifier's cooldown dropped
+        alerts outright. Sequence: down (emailed) -> recovered (emailed) ->
+        down again within cooldown_seconds -> suppressed, so recipients'
+        last email said "recovered" while the service stayed down. The alert
+        is now held in `pending_alert` and retried every poll until the
+        cooldown allows it, or until it no longer applies.
+        """
+        svc.pending_alert = (kind, subject, body)
+        self._flush_alert(svc)
+
+    def _flush_alert(self, svc: "Watched") -> None:
+        """Send `svc.pending_alert` if the notifier accepts it now."""
+        if svc.pending_alert is None:
+            return
+        kind, subject, body = svc.pending_alert
+        if self.notifier is None or self.notifier.notify(kind, svc.name, subject, body):
+            svc.pending_alert = None
+            # Track what recipients were last told about this service.
+            svc.alerted_down = kind != "recovered"
+
+    def _down_alert(self, svc: "Watched") -> tuple[str, str]:
+        """Subject and body for a 'down' alert in the current state."""
+        if svc.state == "error":
+            return (f"{svc.label} status unreadable",
+                    f"Could not read status for {svc.label} ({svc.name}): {svc.error}")
+        if svc.state == "not_found":
+            return (f"{svc.label} not found",
+                    f"{svc.label} ({svc.name}) was not found on this machine. "
+                    "It may have been uninstalled or renamed.")
+        return (f"{svc.label} stopped",
+                f"{svc.label} ({svc.name}) is stopped."
+                + (" Auto-restart is enabled." if svc.auto_restart
+                   else " Auto-restart is disabled."))
 
     # -- checking ----------------------------------------------------------
     def check(self, name: str) -> None:
@@ -224,40 +264,41 @@ class Monitor:
 
                 if previous == "unknown":
                     # First-ever observation; just note it.
-                    self._event("info", svc.label, f"Monitoring started, status is {state}.")
+                    self._event("info" if state == "running" else "warning", svc.label,
+                                f"Monitoring started, status is {state.replace('_', ' ')}.")
                 elif state == "running":
                     self._event("info", svc.label, "Service is running.")
-                    # [Claude review 2026-10-16] Was `previous in {"stopped",
-                    # "error"}`, which missed stopped -> starting -> running
-                    # (the normal path after StartService), so the recovery
-                    # email was never sent. Key off the down alert instead.
+                elif state == "error":
+                    self._event("error", svc.label, f"Cannot read status: {svc.error}")
+                else:
+                    self._event("warning", svc.label,
+                                f"Service is {state.replace('_', ' ')}.")
+
+                # --- Alerts. [Claude review 2026-10-19] Decided separately
+                # from the event log. A service that is already down when
+                # monitoring starts (e.g. it failed at boot) used to get no
+                # email at all because previous == "unknown" was skipped.
+                if state in DOWN_STATES:
                     if svc.alerted_down:
-                        svc.alerted_down = False
+                        # Recipients already think it's down (e.g. stopped ->
+                        # not_found); drop any unsent "recovered".
+                        svc.pending_alert = None
+                    else:
+                        self._notify("down", svc, *self._down_alert(svc))
+                elif state == "running":
+                    # [Claude review 2026-10-16] Keyed off alerted_down, not
+                    # `previous`, so stopped -> starting -> running (the
+                    # normal path after StartService) still sends it.
+                    if svc.alerted_down:
                         self._notify(
                             "recovered", svc,
                             f"{svc.label} recovered",
                             f"{svc.label} ({svc.name}) is running again.",
                         )
-                elif state == "error":
-                    self._event("error", svc.label, f"Cannot read status: {svc.error}")
-                    svc.alerted_down = True  # [Claude review 2026-10-16]
-                    self._notify(
-                        "down", svc,
-                        f"{svc.label} status unreadable",
-                        f"Could not read status for {svc.label} ({svc.name}): {svc.error}",
-                    )
-                else:
-                    self._event("warning", svc.label,
-                                f"Service is {state.replace('_', ' ')}.")
-                    if state == "stopped":
-                        svc.alerted_down = True  # [Claude review 2026-10-16]
-                        self._notify(
-                            "down", svc,
-                            f"{svc.label} stopped",
-                            f"{svc.label} ({svc.name}) is stopped."
-                            + (" Auto-restart is enabled." if svc.auto_restart
-                               else " Auto-restart is disabled."),
-                        )
+                    else:
+                        # A brief outage whose "down" email was still held by
+                        # the cooldown: nothing worth telling anyone.
+                        svc.pending_alert = None
             svc.last_check = now
 
             # --- Persist a sample for charts/uptime.
@@ -280,6 +321,9 @@ class Monitor:
             # --- Attempt restart if stopped and allowed.
             if state == "stopped" and svc.auto_restart:
                 self._try_restart(svc, now)
+
+            # --- Retry an alert the cooldown held back. [Claude review 2026-10-19]
+            self._flush_alert(svc)
 
     def _try_restart(self, svc: Watched, now: datetime) -> None:
         """Start the service if policy allows. Called under self._lock."""

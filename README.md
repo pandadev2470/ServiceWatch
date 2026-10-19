@@ -105,7 +105,13 @@ Configure the `email` section in `config.json`:
     "username": "alerts@example.com",
     "password_env": "SERVICEWATCH_SMTP_PASSWORD",
     "from_addr": "alerts@example.com",
-    "to_addrs": ["you@example.com"],
+    "to_addrs": [
+      "first@example.com",
+      "second@example.com",
+      "third@example.com",
+      "fourth@example.com",
+      "fifth@example.com"
+    ],
     "cooldown_seconds": 300,
     "notify_on": ["down", "recovered", "gave_up"]
   }
@@ -122,7 +128,11 @@ SERVICEWATCH_SMTP_PASSWORD=your-app-password
 
 - The password is read from the environment variable named by `password_env`, so it does not need to be stored in `config.json`.
 - Many email providers, including Gmail and Outlook, may require an app password or provider-specific SMTP configuration.
-- `cooldown_seconds` applies to each event/service pair to help prevent repeated notifications when a service repeatedly changes state.
+- `to_addrs` takes any number of recipients. One message is sent with every address in `To:`. Duplicates are removed. If the server rejects some addresses, the rest still receive the message and the rejected ones are logged.
+- `cooldown_seconds` applies to each event/service pair to help prevent repeated notifications when a service repeatedly changes state. An alert held back by the cooldown is **delayed, not dropped**. If the service is still down when the cooldown ends, the email is sent then. If it recovered in the meantime, nothing is sent.
+- Port 465 (implicit TLS) is supported. Set `"smtp_port": 465` and it is used automatically. Port 587 uses STARTTLS.
+- Subjects include the machine name, for example `[ServiceWatch] PC-NAME: Print Spooler stopped`. Failed sends are retried twice.
+- A "down" email is sent when a service is stopped, its status can't be read, or it is no longer installed, including when it is already down when Service Watch starts.
 
 ## History and Uptime
 
@@ -174,16 +184,27 @@ Dark-mode overrides are defined in the `@media (prefers-color-scheme: dark)` blo
 
 ## Run at Startup with Task Scheduler
 
-To start Service Watch automatically when Windows starts:
+Use the included script from an **elevated** PowerShell in the project folder:
 
-1. Open **Task Scheduler** and create a task.
-2. Configure the task to run at startup.
-3. Select **Run with highest privileges**.
-4. Set the program/script to the project's `.venv\Scripts\python.exe`.
-5. Set the argument to `app.py`.
-6. Set **Start in** to the project directory.
+```powershell
+.\install-task.ps1 -StartNow        # install and start now
+.\install-task.ps1 -Uninstall       # stop and remove
+```
 
-If email notifications are enabled, make sure the task can access the SMTP password environment variable. For example, to set it as a user environment variable in PowerShell:
+If script execution is blocked, run `powershell -ExecutionPolicy Bypass -File .\install-task.ps1 -StartNow`.
+
+The task runs as your account with highest privileges, whether or not you are logged on. No password is stored (S4U logon). Use `-RunAs SYSTEM` to run it as LocalSystem instead, but only after moving the folder somewhere only Administrators can write to, such as `C:\ServiceWatch`. It sets up:
+
+- A **startup trigger with a 2-minute delay**, so delayed-start services aren't reported as stopped at boot.
+- A **watchdog trigger every 5 minutes**. If Service Watch crashed or was killed, it is started again. If it is already running, the trigger does nothing.
+- **No time limit.** Task Scheduler's default stops tasks after 3 days.
+- It keeps running on battery power.
+
+Only one instance can run at a time. A second copy, for example a manual `python app.py` while the task is running, exits with "Another Service Watch instance is already running".
+
+To stop Service Watch for maintenance, **disable** the task first. Otherwise the watchdog restarts it within 5 minutes.
+
+The `.env` file in the project folder is loaded at startup, so the task picks up `SERVICEWATCH_SMTP_PASSWORD` from it. You can also set it as an environment variable for the account the task runs as:
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
@@ -210,6 +231,7 @@ Use a secure secret-management approach appropriate to your environment, and avo
 | `notify.py` | SMTP email notifications. |
 | `config.json` | Service watch list and application settings. |
 | `templates/index.html` | Dashboard template. |
+| `install-task.ps1` | Installs or removes the Windows scheduled task. |
 | `static/logo.png` | logo displayed in the dashboard. |
 | `servicewatch.log` | Rotating log file created on first run. |
 | `servicewatch-history.jsonl` | Append-only history file created on first run. |
@@ -228,6 +250,10 @@ Use a secure secret-management approach appropriate to your environment, and avo
 | `400` response on a POST request | The `X-ServiceWatch` header may be missing. The bundled dashboard is expected to send this header. |
 | `403 Host not allowed` | The browser's `Host` header is not in `allowed_hosts`. Browse to `127.0.0.1`/`localhost`, or add the hostname to `allowed_hosts`. |
 | `Address already in use` | Another instance may be running, or the port in `config.json` may need to be changed. |
+| `Another Service Watch instance is already running` | The scheduled task is already running it. Use the dashboard, or disable the task first. |
+| `Invalid config.json` | The message lists each problem (missing `name`, duplicate service, wrong type). Errors are also written to `servicewatch.log`. |
+| Scheduled task "Last Run Result" is `0x1` | The app exited with an error. Check `servicewatch.log`. |
+| Some recipients get no email | Search `servicewatch.log` for "rejected recipients". |
 
 ---
 
